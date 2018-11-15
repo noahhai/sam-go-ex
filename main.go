@@ -62,10 +62,10 @@ func main() {
 	RegisterRoutes(db)
 	if !*isServerful {
 		log.Println("Starting listening and serving in serverless mode")
-		log.Fatal(gateway.ListenAndServe(":5000", nil))
+		log.Fatal(gateway.ListenAndServe(":3000", nil))
 	} else {
 		log.Println("Starting listening and serving in serverfull mode")
-		log.Fatal(http.ListenAndServe(":5000", nil))
+		log.Fatal(http.ListenAndServe(":3000", nil))
 	}
 }
 
@@ -75,6 +75,7 @@ func getDatabase() *gorm.DB {
 	user := os.Getenv("DB_USER")
 	pass := os.Getenv("DB_PASS")
 	dbname := os.Getenv("DB_NAME")
+
 	db, err := gorm.Open("postgres", fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s", host, port, user, dbname, pass))
 	if err != nil {
 		panic("failed to connect database")
