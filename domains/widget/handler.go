@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/noahhai/sam-go-ex/utils"
 )
@@ -28,6 +29,13 @@ func (h *handler) HandleUpsert(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	var widget WidgetInventory
 	err := decoder.Decode(&widget)
+	widget.Category = strings.ToLower(widget.Category)
+	widget.Size = strings.ToLower(widget.Size)
+	widget.Color = strings.ToLower(widget.Color)
+	widget.Name = strings.ToLower(widget.Name)
+	if err == nil {
+		h.service.UpsertWidget(&widget)
+	}
 	if err != nil || widget.Name == "" {
 		if err == nil {
 			err = errors.New("widget name not set")

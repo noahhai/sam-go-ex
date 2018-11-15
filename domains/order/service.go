@@ -8,7 +8,8 @@ import (
 )
 
 type OrderService interface {
-	Get(orderID uint) *Order
+	Get(orderID uint) []Order
+	All() []Order
 	UpsertOrder(w *Order) error
 }
 
@@ -24,61 +25,70 @@ func NewOrderService(db *gorm.DB, ws widget.WidgetService) OrderService {
 	}
 }
 
-func (s *orderService) Get(orderID uint) (order *Order) {
+func (s *orderService) All() []Order {
+	var orders []Order
+	s.db.Preload("LineItems").Preload("LineItems.Widget").Find(&orders)
+	return orders
+}
+
+func (s *orderService) Get(orderID uint) []Order {
 	var orders []Order
 	s.db.Preload("LineItems").Preload("LineItems.Widget").First(&orders, orderID)
-	if orders != nil && len(orders) > 0 {
-		order = &(orders[0])
-	}
-	return order
+	return orders
 }
 
 func (s *orderService) UpsertOrder(o *Order) error {
 	var currOrder *Order
 	if o.ID != 0 {
 		var currOrders []Order
-		s.db.First(&currOrders, o.ID)
+		s.db.Preload("LineItems").Preload("LineItems.Widget").First(&currOrders, o.ID)
 		if currOrders != nil && len(currOrders) > 0 {
 			currOrder = &currOrders[0]
 		}
 	}
 
 	numWidgets := len(o.LineItems)
-	inventoryChanges := make(map[uint]int, numWidgets)
+
+	// space accounts for products on current order that have been removed
+	inventoryChanges := make(map[uint]int, 3*numWidgets)
 	productsInOrder := make([]*widget.WidgetInventory, 0, numWidgets)
 
-	for _, li := range o.LineItems {
+	for i, li := range o.LineItems {
 		inventory := s.ws.Get(li.WidgetID)
 		if inventory == nil {
 			return fmt.Errorf("could not find widget for line item; id:'%s', attr:'%v'", li.WidgetID, li.Widget)
 		}
 		productsInOrder = append(productsInOrder, inventory)
-		inventoryChanges[li.WidgetID] = li.Quantity
-		if currOrder != nil {
-			var currLineItem OrderItem
-			for _, c := range currOrder.LineItems {
-				if c.WidgetID == li.WidgetID {
-					currLineItem = c
-				}
-			}
-			if currLineItem.ID != 0 {
-				inventoryChanges[li.WidgetID] -= currLineItem.Quantity
-			}
+		inventoryChanges[li.WidgetID] = -li.Quantity
+
+		if li.Quantity == 0 {
+			o.LineItems = append(o.LineItems[:i], o.LineItems[i+1:]...)
 		}
-		for _, inventory := range productsInOrder {
-			if inventoryChanges[inventory.ID] > inventory.Remaining {
-				return fmt.Errorf("only %d left in inventory for widget; id:'%s'", inventory.Remaining, inventory.ID)
+	}
+	if currOrder != nil {
+		for _, li := range currOrder.LineItems {
+			_, ok := inventoryChanges[li.WidgetID]
+			if !ok {
+				productsInOrder = append(productsInOrder, &li.Widget)
 			}
-			inventory.Remaining -= inventoryChanges[inventory.ID]
+			inventoryChanges[li.WidgetID] += li.Quantity
 		}
-		for _, inventory := range productsInOrder {
-			s.ws.UpsertWidget(inventory)
+	}
+
+	for _, inventory := range productsInOrder {
+		if -inventoryChanges[inventory.ID] > inventory.Remaining {
+			return fmt.Errorf("only %d left in inventory for widget; id:'%d'", inventory.Remaining, inventory.ID)
 		}
+		inventory.Remaining = inventory.Remaining + inventoryChanges[inventory.ID]
+	}
+	for _, inventory := range productsInOrder {
+		s.ws.UpsertWidget(inventory)
 	}
 
 	if currOrder == nil {
 		s.db.Create(o)
 	} else {
+		s.db.Delete(OrderItem{}, "order_id = ?", o.ID)
 		s.db.Save(o)
 	}
 	return nil

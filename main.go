@@ -29,18 +29,26 @@ func RegisterRoutes(db *gorm.DB) {
 	widgetHandler := widget.NewHandler(widgetService)
 	orderHandler := order.NewHandler(orderService)
 	r := mux.NewRouter()
+	r.Methods("OPTIONS").HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+	r.Use(CorsMiddleware)
 
 	r.HandleFunc("/widgets", widgetHandler.HandleFilter).Methods("GET")
 	r.HandleFunc("/widget", widgetHandler.HandleUpsert).Methods("PUT", "POST")
 	r.HandleFunc("/order", orderHandler.HandleUpsert).Methods("PUT", "POST")
-	r.HandleFunc("/order/{orderid}", orderHandler.HandleGet).Methods("GET")
+	r.HandleFunc("/orders", orderHandler.HandleGetAll).Methods("GET")
+	r.HandleFunc("/orders/{orderid}", orderHandler.HandleGet).Methods("GET")
 
 	http.Handle("/", r)
 }
 
-func h(next http.HandlerFunc) http.Handler {
+func CorsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", ContentType)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -54,10 +62,10 @@ func main() {
 	RegisterRoutes(db)
 	if !*isServerful {
 		log.Println("Starting listening and serving in serverless mode")
-		log.Fatal(gateway.ListenAndServe(":3000", nil))
+		log.Fatal(gateway.ListenAndServe(":5000", nil))
 	} else {
 		log.Println("Starting listening and serving in serverfull mode")
-		log.Fatal(http.ListenAndServe(":3000", nil))
+		log.Fatal(http.ListenAndServe(":5000", nil))
 	}
 }
 
